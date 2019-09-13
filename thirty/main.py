@@ -27,6 +27,7 @@ SOFTWARE.
 """
 
 import random
+import sys
 
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import Vec3
@@ -38,7 +39,10 @@ from . import geometry
 class Thirty(ShowBase):
     def __init__(self):
         super().__init__()
-        self.accept('space', self.add_cube)
+        self.accept('c', self.add_cube)
+        self.accept('p', self.add_prism)
+        self.accept('f1', self.toggle_wireframe)
+        self.accept('escape', sys.exit, [0])
 
     def add_cube(self):
         x = random.uniform(-100, 100)
@@ -55,6 +59,25 @@ class Thirty(ShowBase):
             )
         )
         print(Vec3(x, y, z), (l, w, h), Vec3(x, y, z).normalized())
+
+    def add_prism(self):
+        x = random.uniform(-100, 100)
+        y = random.uniform(-100, 100)
+        z = random.uniform(-100, 100)
+        r = random.uniform(1, 40)
+        l = random.randint(1, 80)
+        p = random.randint(3, 20)
+        s = random.randint(1, 10)
+        self.render.attach_new_node(
+            geometry.prism(
+                Vec3(x, y, z),
+                p,
+                r,
+                l,
+                Vec3(x, y, z).normalized(),
+                segments=s
+            )
+        )
 
 
 if __name__ == '__main__':
