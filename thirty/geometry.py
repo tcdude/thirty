@@ -82,124 +82,6 @@ def tri_face_norm(p1, p2, p3):
     ).normalized()
 
 
-def tangents(normal):
-    x, y, z = normal
-    x, y, z = abs(x), abs(y), abs(z)
-    v_max = max(x, y, z)
-    v_min = min(x, y, z)
-    if x == v_max:
-        d_max = 0
-        if y == v_min:
-            u = Vec3(0, 1, 0)
-        else:
-            u = Vec3(0, 0, 1)
-    elif y == v_max:
-        d_max = 1
-        if x == v_min:
-            u = Vec3(-1, 0, 0)
-        else:
-            u = Vec3(0, 0, 1)
-    else:
-        d_max = 2
-        if x == v_min:
-            u = Vec3(1, 0, 0)
-        else:
-            u = Vec3(0, 1, 0)
-
-    if normal[d_max] < 0:
-        u *= -1
-
-    v_tangent = normal.cross(u)
-    u_tangent = normal.cross(-v_tangent)
-    return u_tangent, v_tangent
-
-
-def quad(origin, bounds, normal):
-    """
-    Return 4-Tuple of Vec3 that make up the quad with ccw winding.
-
-    Arguments:
-        origin: center of the quad
-        bounds: 2-Tuple of length and width
-        normal: normal vector of the quad
-    """
-    u_tangent, v_tangent = tangents(normal)
-    u_tangent *= bounds[0]
-    v_tangent *= bounds[1]
-
-    p1 = origin - u_tangent - v_tangent
-    p2 = origin + u_tangent - v_tangent
-    p3 = origin + u_tangent + v_tangent
-    p4 = origin - u_tangent + v_tangent
-
-    return p1, p2, p3, p4
-
-
-def cuboid(origin, bounds, normal, color=Vec4(1)):
-    """
-    Return GeomNode of the cuboid,
-
-    Arguments:
-        origin: center of the cuboid
-        bounds: 3-Tuple of length, width and height
-        normal: normal vector of the up face
-    """
-    u_tangent, v_tangent = tangents(normal)
-    up = quad(origin + normal * bounds[2], bounds[:2], normal)
-    down = quad(origin - normal * bounds[2], bounds[:2], -normal)
-    right = quad(
-        origin + u_tangent * bounds[0],
-        bounds[1:],
-        u_tangent)
-    left = quad(
-        origin - u_tangent * bounds[0],
-        bounds[1:],
-        -u_tangent
-    )
-    front = quad(
-        origin - v_tangent * bounds[1],
-        (bounds[0], bounds[2]),
-        -v_tangent
-    )
-    back = quad(
-        origin + v_tangent * bounds[1],
-        (bounds[0], bounds[2]),
-        v_tangent
-    )
-
-    v_data = GeomVertexData(
-        'cuboid',
-        GeomVertexFormat.get_v3n3c4(),
-        Geom.UHStatic
-    )
-    v_data.set_num_rows(24)
-    vert_writer = GeomVertexWriter(v_data, 'vertex')
-    norm_writer = GeomVertexWriter(v_data, 'normal')
-    color_writer = GeomVertexWriter(v_data, 'color')
-    verts = up + down + right + left + front + back
-    norms = (normal, ) * 4 + (-normal, ) * 4
-    norms += (u_tangent, ) * 4 + (-u_tangent, ) * 4
-    norms += (-v_tangent, ) * 4 + (v_tangent, ) * 4
-    for v, n in zip(verts, norms):
-        vert_writer.add_data3(v)
-        norm_writer.add_data3(n)
-        color_writer.add_data4(color)
-    prim = GeomTriangles(Geom.UHStatic)
-    for i in range(6):
-        v0 = i * 4
-        v1 = v0 + 1
-        v2 = v1 + 1
-        v3 = v2 + 1
-        prim.add_vertices(v0, v1, v2)
-        prim.add_vertices(v2, v3, v0)
-
-    geom = Geom(v_data)
-    geom.add_primitive(prim)
-    node = GeomNode('cuboid')
-    node.add_geom(geom)
-    return node
-
-
 def prism(
         origin,
         polygon,
@@ -208,7 +90,8 @@ def prism(
         direction=Vec3(0, 0, 1),
         center_offset=0.5,
         segments=1,
-        color=Vec4(1)
+        color=Vec4(1),
+        normal_as_color=True
     ):
     """
     Return GeomNode of prism.
@@ -280,8 +163,10 @@ def prism(
         for v in triangle:
             vert_writer.add_data3(v)
             norm_writer.add_data3(base_normal)
-            # color_writer.add_data4(color)
-            color_writer.add_data4(*tuple(base_normal), 1)
+            if normal_as_color:
+                color_writer.add_data4(*tuple(base_normal), 1)
+            else:
+                color_writer.add_data4(color)
         prim.add_vertices(current_id, current_id + 1, current_id + 2)
         current_id += 3
 
@@ -290,8 +175,10 @@ def prism(
         for v in triangle:
             vert_writer.add_data3(v)
             norm_writer.add_data3(direction)
-            # color_writer.add_data4(color)
-            color_writer.add_data4(*tuple(direction), 1)
+            if normal_as_color:
+                color_writer.add_data4(*tuple(direction), 1)
+            else:
+                color_writer.add_data4(color)
         prim.add_vertices(current_id, current_id + 1, current_id + 2)
         current_id += 3
 
@@ -307,13 +194,86 @@ def prism(
                 for v in triangle:
                     vert_writer.add_data3(v)
                     norm_writer.add_data3(normal)
-                    # color_writer.add_data4(color)
-                    color_writer.add_data4(*tuple(normal), 1)
+                    if normal_as_color:
+                        color_writer.add_data4(*tuple(normal), 1)
+                    else:
+                        color_writer.add_data4(color)
                 prim.add_vertices(current_id, current_id + 1, current_id + 2)
                 current_id += 3
 
     geom = Geom(vert_data)
     geom.add_primitive(prim)
     node = GeomNode('prism')
+    node.add_geom(geom)
+    return node
+
+
+def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=True):
+    """
+    Return GeomNode of the cuboid,
+
+    Arguments:
+        origin: center of the cuboid
+        bounds: 3-Tuple of length, width and height
+        normal: normal vector of the up face
+    """
+    dfl = Vec3(-bounds[0], -bounds[1], -bounds[2])
+    dfr = Vec3(bounds[0], -bounds[1], -bounds[2])
+    dbr = Vec3(bounds[0], bounds[1], -bounds[2])
+    dbl = Vec3(-bounds[0], bounds[1], -bounds[2])
+    ufl = Vec3(-bounds[0], -bounds[1], bounds[2])
+    ufr = Vec3(bounds[0], -bounds[1], bounds[2])
+    ubr = Vec3(bounds[0], bounds[1], bounds[2])
+    ubl = Vec3(-bounds[0], bounds[1], bounds[2])
+
+    faces = [
+        (ufl, ufr, ubr, ubl),   # Up
+        (dfl, dbl, dbr, dfr),   # Down
+        (dfr, dbr, ubr, ufr),   # Right
+        (dfl, ufl, ubl, dbl),   # Left
+        (dfl, dfr, ufr, ufl),   # Front
+        (dbl, ubl, ubr, dbr),   # Back
+    ]
+
+    world_np = NodePath('world')
+    direction_np = world_np.attach_new_node('direction')
+    draw_np = direction_np.attach_new_node('draw')
+    direction_np.look_at(normal)
+    direction_np.set_pos(origin)
+
+    vert_data = GeomVertexData(
+        'cuboid',
+        GeomVertexFormat.get_v3n3c4(),
+        Geom.UH_static
+    )
+    vert_data.set_num_rows(24)
+    vert_writer = GeomVertexWriter(vert_data, 'vertex')
+    norm_writer = GeomVertexWriter(vert_data, 'normal')
+    color_writer = GeomVertexWriter(vert_data, 'color')
+    prim = GeomTriangles(Geom.UH_static)
+
+    current_id = 0
+    for f in faces:
+        pts = []
+        for p in f:
+            draw_np.set_pos(p)
+            vert = draw_np.get_pos(world_np)
+            vert_writer.add_data3(vert)
+            pts.append(vert)
+        normal = tri_face_norm(*pts[:3])
+
+        for i in range(4):
+            norm_writer.add_data3(normal)
+            if normal_as_color:
+                color_writer.add_data4(*tuple(normal), 1)
+            else:
+                color_writer.add_data4(color)
+        prim.add_vertices(current_id, current_id + 1, current_id + 2)
+        prim.add_vertices(current_id + 2, current_id + 3, current_id)
+        current_id += 4
+
+    geom = Geom(vert_data)
+    geom.add_primitive(prim)
+    node = GeomNode('cuboid')
     node.add_geom(geom)
     return node

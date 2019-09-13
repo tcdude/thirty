@@ -55,10 +55,9 @@ class Thirty(ShowBase):
             geometry.cuboid(
                 Vec3(x, y, z),
                 (l, w, h),
-                Vec3(0, 0, 1).normalized()
+                Vec3(x, y, z).normalized()
             )
         )
-        print(Vec3(x, y, z), (l, w, h), Vec3(x, y, z).normalized())
 
     def add_prism(self):
         x = random.uniform(-100, 100)
