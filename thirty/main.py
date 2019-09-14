@@ -32,6 +32,9 @@ import sys
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import Vec3
 from panda3d.core import Vec4
+from panda3d.core import AmbientLight
+from panda3d.core import DirectionalLight
+from direct.interval.LerpInterval import LerpHprInterval
 
 from . import geometry
 
@@ -39,10 +42,21 @@ from . import geometry
 class Thirty(ShowBase):
     def __init__(self):
         super().__init__()
-        self.accept('c', self.add_cube)
+        self.accept('b', self.add_cube)
+        self.accept('c', self.add_cone)
         self.accept('p', self.add_prism)
         self.accept('f1', self.toggle_wireframe)
         self.accept('escape', sys.exit, [0])
+        dl = DirectionalLight('sun')
+        dl.set_color_temperature(8000)
+        dl_np = self.render.attach_new_node(dl)
+        al = AmbientLight('moon')
+        al.set_color(Vec4(0.2, 0.2, 0.2, 1))
+        al_np = self.render.attach_new_node(al)
+        self.render.set_light(dl_np)
+        self.render.set_light(al_np)
+        self.render.set_shader_auto(True)
+        LerpHprInterval(dl_np, 20, (360, 0, 0)).loop()
 
     def add_cube(self):
         x = random.uniform(-100, 100)
@@ -74,6 +88,30 @@ class Thirty(ShowBase):
                 r,
                 l,
                 Vec3(x, y, z).normalized(),
+                segments=s
+            )
+        )
+
+
+    def add_cone(self):
+        x = random.uniform(-100, 100)
+        y = random.uniform(-100, 100)
+        z = random.uniform(-100, 100)
+        r1 = random.uniform(1, 40)
+        if random.random() < 0.5:
+            r2 = 0
+        else:
+            r2 = random.uniform(1, 40)
+        l = random.randint(1, 80)
+        p = random.randint(3, 20)
+        s = random.randint(1, 10)
+        self.render.attach_new_node(
+            geometry.cone(
+                Vec3(x, y, z),
+                Vec3(x, y, z).normalized(),
+                (r1, r2),
+                p,
+                l,
                 segments=s
             )
         )

@@ -82,6 +82,20 @@ def tri_face_norm(p1, p2, p3):
     ).normalized()
 
 
+def vert_array(num_rows, name):
+    vert_data = GeomVertexData(
+        name,
+        GeomVertexFormat.get_v3n3c4(),
+        Geom.UH_static
+    )
+
+    vert_data.set_num_rows(num_rows)
+    vert_writer = GeomVertexWriter(vert_data, 'vertex')
+    norm_writer = GeomVertexWriter(vert_data, 'normal')
+    color_writer = GeomVertexWriter(vert_data, 'color')
+    return vert_data, vert_writer, norm_writer, color_writer
+
+
 def prism(
         origin,
         polygon,
@@ -134,18 +148,10 @@ def prism(
     segment_triangles = connect_lines(polygon, polygon)
     top_triangles = connect_lines(1, polygon)
 
-    vert_data = GeomVertexData(
-        'prism',
-        GeomVertexFormat.get_v3n3c4(),
-        Geom.UH_static
+    vert_data, vert_writer, norm_writer, color_writer = vert_array(
+        len(base_triangles) * 6 + len(segment_triangles) * segments * 3,
+        'prism'
     )
-
-    vert_data.set_num_rows(
-        len(base_triangles) * 6 + len(segment_triangles) * segments * 3
-    )
-    vert_writer = GeomVertexWriter(vert_data, 'vertex')
-    norm_writer = GeomVertexWriter(vert_data, 'normal')
-    color_writer = GeomVertexWriter(vert_data, 'color')
 
     base_normal = -direction
     normal_sides = []
@@ -241,15 +247,10 @@ def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=True):
     direction_np.look_at(normal)
     direction_np.set_pos(origin)
 
-    vert_data = GeomVertexData(
-        'cuboid',
-        GeomVertexFormat.get_v3n3c4(),
-        Geom.UH_static
+    vert_data, vert_writer, norm_writer, color_writer = vert_array(
+        24,
+        'cuboid'
     )
-    vert_data.set_num_rows(24)
-    vert_writer = GeomVertexWriter(vert_data, 'vertex')
-    norm_writer = GeomVertexWriter(vert_data, 'normal')
-    color_writer = GeomVertexWriter(vert_data, 'color')
     prim = GeomTriangles(Geom.UH_static)
 
     current_id = 0
@@ -275,5 +276,138 @@ def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=True):
     geom = Geom(vert_data)
     geom.add_primitive(prim)
     node = GeomNode('cuboid')
+    node.add_geom(geom)
+    return node
+
+
+def cone(
+        origin,
+        direction,
+        radii,
+        polygon,
+        height,
+        segments=1,
+        center_offset=0.5,
+        top_offset=(0, 0),
+        color=Vec4(0),
+        normal_as_color=True
+    ):
+    """
+    Return a Node of a cone.
+
+    Arguments:
+        origin: Vec3
+        direction: Vec3
+        radii: 2-Tuple with base and top radius
+        polygon: number of vertices of the base polygon
+        height: float
+        segments: number of segments from base to top
+        center_offset: float 0..1 z-origin by height
+        top_offset: 2-Tuple x, y offset for top TODO: Implement this
+        color: Vec4
+        normal_as_color: whether to use the vertex normal as color
+    """
+    vert_data, vert_writer, norm_writer, color_writer = vert_array(
+        2 + polygon * (segments + 1 if 0 in radii else 2),
+        'cone'
+    )
+    current_id = [0]
+
+    def add_row(v, n):
+        vert_writer.add_data3(v)
+        norm_writer.add_data3(n)
+        if normal_as_color:
+            color_writer.add_data4(*tuple(n), 1)
+        else:
+            color_writer.add_data4(color)
+        current_id[0] += 1
+        return current_id[0] - 1
+
+    world_np = NodePath('world')
+    direction_np = world_np.attach_new_node('direction')
+    orientation_np = direction_np.attach_new_node('orientation')
+    draw_np = orientation_np.attach_new_node('draw')
+    direction_np.look_at(direction)
+    direction_np.set_pos(origin)
+
+    draw_np.set_x(1)
+    h_steps = np.linspace(0, 360, polygon, endpoint=False)
+    normals = []
+    for h in h_steps:
+        orientation_np.set_h(h)
+        n = draw_np.get_pos(world_np) - orientation_np.get_pos(world_np)
+        n.normalize()
+        normals.append(n)
+
+    draw_np.set_pos(0, 0, -1)
+    base_normal = draw_np.get_pos(world_np) - orientation_np.get_pos(world_np)
+    base_normal.normalize()
+    top_normal = -base_normal
+
+    r_steps = np.linspace(*radii, segments + 1)
+
+    draw_np.set_pos(0, 0, 0)
+    z_steps = np.linspace(
+        -height * center_offset,
+        height * (1 - center_offset),
+        segments + 1
+    )
+
+    last = len(r_steps) - 1
+    verts = []
+    for i, (r, z) in enumerate(zip(r_steps, z_steps)):
+        orientation_np.set_z(z)
+        draw_np.set_x(r)
+        if r == 0:
+            v_id = add_row(
+                draw_np.get_pos(world_np),
+                top_normal if i else base_normal
+            )
+
+            verts.append([v_id])
+            continue
+
+        if i == 0:
+            line = []
+            draw_np.set_x(0)
+            v_id = add_row(draw_np.get_pos(world_np), base_normal)
+            verts.append([v_id])
+            draw_np.set_x(r)
+            for h, n in zip(h_steps, normals):
+                orientation_np.set_h(h)
+                v_id = add_row(draw_np.get_pos(world_np), base_normal)
+                line.append(v_id)
+            verts.append(line)
+
+        line = []
+        for h, n in zip(h_steps, normals):
+            orientation_np.set_h(h)
+            v_id = add_row(draw_np.get_pos(world_np), n)
+            line.append(v_id)
+        verts.append(line)
+
+        if i == last:
+            line = []
+            for h, n in zip(h_steps, normals):
+                orientation_np.set_h(h)
+                v_id = add_row(draw_np.get_pos(world_np), top_normal)
+                line.append(v_id)
+            verts.append(line)
+            draw_np.set_x(0)
+            v_id = add_row(draw_np.get_pos(world_np), top_normal)
+            verts.append([v_id])
+
+    prim = GeomTriangles(Geom.UH_static)
+    for i in range(len(verts) - 1):
+        upper = verts[i + 1]
+        lower = verts[i]
+        tri_indices = connect_lines(len(upper), len(lower))
+        for u, l in tri_indices:
+            triangle = [upper[v] for v in u] + [lower[v] for v in l]
+            prim.add_vertices(*triangle)
+
+    geom = Geom(vert_data)
+    geom.add_primitive(prim)
+    node = GeomNode('cone')
     node.add_geom(geom)
     return node
