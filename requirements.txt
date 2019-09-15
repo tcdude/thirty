@@ -1,2 +1,4 @@
 panda3d
 numpy
+pyfastnoisesimd
+Pillow
