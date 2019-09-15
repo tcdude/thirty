@@ -39,6 +39,9 @@ from panda3d.core import Vec4
 import numpy as np
 
 
+NAC=True
+
+
 def connect_lines(upper, lower, wrap_around=True):
     """
     Return triangle indices to connect two lines of vertices.
@@ -105,7 +108,7 @@ def prism(
         center_offset=0.5,
         segments=1,
         color=Vec4(1),
-        normal_as_color=True
+        normal_as_color=NAC
     ):
     """
     Return GeomNode of prism.
@@ -214,7 +217,7 @@ def prism(
     return node
 
 
-def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=True):
+def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=NAC):
     """
     Return GeomNode of the cuboid,
 
@@ -289,8 +292,8 @@ def cone(
         segments=1,
         center_offset=0.5,
         top_offset=(0, 0),
-        color=Vec4(0),
-        normal_as_color=True
+        color=Vec4(1),
+        normal_as_color=NAC
     ):
     """
     Return a Node of a cone.
@@ -409,5 +412,130 @@ def cone(
     geom = Geom(vert_data)
     geom.add_primitive(prim)
     node = GeomNode('cone')
+    node.add_geom(geom)
+    return node
+
+
+def cylinder(
+        origin,
+        direction,
+        polygon,
+        radius,
+        height,
+        segments=1,
+        center_offset=0.5,
+        color=Vec4(1),
+        normal_as_color=NAC
+    ):
+    """
+    Return a Node of a cylinder.
+
+    Arguments:
+        origin: Vec3
+        direction: Vec3
+        polygon: number of vertices
+        radius: float
+        height: float
+        segments: int
+        center_offset: float, origin offset from base
+        color: Vec4
+        normal_as_color: whether to use the vertex normal as color
+    """
+    return cone(
+        origin,
+        direction,
+        polygon,
+        (radius, radius),
+        height,
+        segments,
+        center_offset,
+        color=color,
+        normal_as_color=normal_as_color
+    )
+
+
+def dome(
+        origin,
+        direction,
+        polygon,
+        radius,
+        segments=None,
+        color=Vec4(1),
+        normal_as_color=NAC
+    ):
+    """
+    Return a Node of a dome/half-sphere.
+
+    Arguments:
+        origin: Vec3
+        direction: Vec3
+        polygon: number of vertices
+        radius: float
+        segments: int
+        color: Vec4
+        normal_as_color: whether to use the vertex normal as color
+    """
+    segments = segments or max(2, polygon // 4 + 1)
+    vert_data, vert_writer, norm_writer, color_writer = vert_array(
+        2 + polygon * (segments + 1),
+        'dome'
+    )
+    current_id = [0]
+
+    def add_row(v, n):
+        vert_writer.add_data3(v)
+        norm_writer.add_data3(n)
+        if normal_as_color:
+            color_writer.add_data4(*tuple(n.normalized()), 1)
+        else:
+            color_writer.add_data4(color)
+        current_id[0] += 1
+        return current_id[0] - 1
+
+    world_np = NodePath('world')
+    direction_np = world_np.attach_new_node('direction')
+    orientation_np = direction_np.attach_new_node('orientation')
+    draw_np = orientation_np.attach_new_node('draw')
+    direction_np.look_at(direction)
+    direction_np.set_pos(origin)
+    draw_np.set_y(radius)
+    orientation_np.set_z(radius)
+    verts = [[add_row(orientation_np.get_pos(world_np), direction)]]
+    orientation_np.set_z(0)
+    base_point = add_row(orientation_np.get_pos(world_np), -direction)
+    base_normal = -direction
+
+    h_steps = np.linspace(0, 360, polygon, endpoint=False)
+    p_steps = np.linspace(0, 90, segments + 1, endpoint=False)
+    p_steps = p_steps[::-1]
+    last_line = []
+    for i, p in enumerate(p_steps):
+        line = []
+        orientation_np.set_p(p)
+        for h in h_steps:
+            orientation_np.set_h(h)
+            v = draw_np.get_pos(world_np)
+            n = v - base_point
+            n.normalize()
+            line.append(add_row(v, n))
+            if i == segments:
+                last_line.append(add_row(v, base_normal))
+        verts.append(line)
+
+    prim = GeomTriangles(Geom.UH_static)
+    for i in range(len(verts) - 1):
+        upper = verts[i]
+        lower = verts[i + 1]
+        for u, l in connect_lines(len(upper), len(lower)):
+            triangle = [upper[v] for v in u] + [lower[v] for v in l]
+            prim.add_vertices(*triangle)
+
+    for u, l in connect_lines(len(last_line), 1):
+        triangle = [last_line[v] for v in u] + [base_point]
+        prim.add_vertices(*triangle)
+
+    geom = Geom(vert_data)
+    geom.add_primitive(prim)
+    node = GeomNode('dome')
     node.add_geom(geom)
     return node

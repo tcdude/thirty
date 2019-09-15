@@ -45,6 +45,7 @@ class Thirty(ShowBase):
         self.accept('b', self.add_cube)
         self.accept('c', self.add_cone)
         self.accept('p', self.add_prism)
+        self.accept('d', self.add_dome)
         self.accept('f1', self.toggle_wireframe)
         self.accept('escape', sys.exit, [0])
         dl = DirectionalLight('sun')
@@ -56,7 +57,7 @@ class Thirty(ShowBase):
         self.render.set_light(dl_np)
         self.render.set_light(al_np)
         self.render.set_shader_auto(True)
-        LerpHprInterval(dl_np, 20, (360, 0, 0)).loop()
+        LerpHprInterval(dl_np, 5, (360, 0, 0)).loop()
 
     def add_cube(self):
         x = random.uniform(-100, 100)
@@ -113,6 +114,22 @@ class Thirty(ShowBase):
                 p,
                 l,
                 segments=s
+            )
+        )
+
+
+    def add_dome(self):
+        x = random.uniform(-100, 100)
+        y = random.uniform(-100, 100)
+        z = random.uniform(-100, 100)
+        r = random.uniform(4, 40)
+        p = random.randint(10, 30)
+        self.render.attach_new_node(
+            geometry.dome(
+                Vec3(x, y, z),
+                Vec3(x, y, z).normalized(),
+                p,
+                r
             )
         )
 
