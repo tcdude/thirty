@@ -1,6 +1,7 @@
 """
 Helper functions to easily create various shapes.
 """
+from thirty.tools import connect_lines
 
 __copyright__ = """
 MIT License
@@ -38,51 +39,11 @@ from panda3d.core import Vec4
 
 import numpy as np
 
-
-NAC=True
-
-
-def connect_lines(upper, lower, wrap_around=True):
-    """
-    Return triangle indices to connect two lines of vertices.
-
-    Arguments:
-        upper: Number of vertices in the upper "line"
-        lower: Number of vertices in the lower "line"
-        wrap_around: (Optional) whether to connect the ends
-    """
-    if not (1 < upper == lower or [upper, lower].count(1) == 1):
-        raise ValueError('Wrong input. upper and lower either need to be '
-                         'the same and > 1 or any combination of 1 and >=2')
-
-    if 1 in (upper, lower):
-        if upper == 1:
-            if wrap_around:
-                return [((0, ), (i, (i + 1) % lower)) for i in range(lower)]
-            else:
-                return [((0, ), (i, i + 1)) for i in range(lower - 1)]
-        else:
-            if wrap_around:
-                return [(((i + 1) % upper, i), (0, )) for i in range(upper)]
-            else:
-                return [((i + 1, i), (0, )) for i in range(upper - 1)]
-
-    indices = []
-    for i in range(upper if wrap_around else upper - 1):
-        next_i = (i + 1) % upper
-        indices.append(((i, ), (i, next_i)))
-        indices.append(((next_i, i), (next_i, )))
-    return indices
+from . import draw
+from . import tools
 
 
-def tri_face_norm(p1, p2, p3):
-    u = p2 - p1
-    v = p3 - p1
-    return Vec3(
-        u.y * v.z - u.z * v.y,
-        u.z * v.x - u.x * v.z,
-        u.x * v.y - u.y * v.x
-    ).normalized()
+NAC = True
 
 
 def vert_array(num_rows, name):
@@ -122,6 +83,7 @@ def prism(
         center_offset: Optional float 0..1, indicating where the origin lies
         segments: number of segments between base and top
         color: Vec4
+        normal_as_color: whether to use the normal as color
     """
     world_np = NodePath('world')
     direction_np = world_np.attach_new_node('direction')
@@ -161,7 +123,7 @@ def prism(
     for i in range(polygon):
         u, l = segment_triangles[i * 2]
         pts = [verts[1][v] for v in u] + [verts[0][v] for v in l]
-        normal_sides.append(tri_face_norm(*pts))
+        normal_sides.append(tools.tri_face_norm(*pts))
 
     prim = GeomTriangles(Geom.UH_static)
 
@@ -264,7 +226,7 @@ def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=NAC):
             vert = draw_np.get_pos(world_np)
             vert_writer.add_data3(vert)
             pts.append(vert)
-        normal = tri_face_norm(*pts[:3])
+        normal = tools.tri_face_norm(*pts[:3])
 
         for i in range(4):
             norm_writer.add_data3(normal)
@@ -519,7 +481,7 @@ def dome(
             n.normalize()
             line.append(add_row(v, n))
             if i == segments:
-                last_line.append(add_row(v, base_normal))
+                last_line.append(add_row(v, (base_normal * 3 + n).normalized()))
         verts.append(line)
 
     prim = GeomTriangles(Geom.UH_static)
@@ -539,3 +501,35 @@ def dome(
     node = GeomNode('dome')
     node.add_geom(geom)
     return node
+
+
+def mushroom_cap(
+        origin,
+        direction,
+        polygon,
+        inner_radii,
+        outer_radii,
+        inner_height,
+        outer_height,
+        inner_color=Vec4(1),
+        outer_color=Vec4(1),
+        normal_as_color=NAC
+    ):
+    """
+    Return a Node of a mushroom cap shape.
+
+    Arguments:
+        origin: Vec3
+        direction: Vec3
+        polygon: Number of vertices for the polygons used
+        inner_radii: inner radii from inner top most to base of the cap
+        outer_radii: outer radii from outer base to the top most
+        inner_height: distance between base and inner top
+        outer_height: distance between base and outer top
+        inner_color: Vec4 color inside the cap
+        outer_color: Vec4 color outside the cap
+        normal_as_color: whether to use the normal vector as color
+    """
+    d = draw.Draw()
+    d.setup(origin, direction)
+

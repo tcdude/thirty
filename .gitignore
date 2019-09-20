@@ -2,8 +2,9 @@
 **.pyc
 __pycache__/
 **.pyo
-venv/
+venv*/
 .mypy_cache/
+.idea/
 
 #vscode
 .vscode/

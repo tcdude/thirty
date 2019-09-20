@@ -42,10 +42,12 @@ from . import geometry
 class Thirty(ShowBase):
     def __init__(self):
         super().__init__()
+        self.set_background_color(Vec4(0, 0, 0, 1))
         self.accept('b', self.add_cube)
         self.accept('c', self.add_cone)
         self.accept('p', self.add_prism)
         self.accept('d', self.add_dome)
+        self.accept('t', self.add_tree)
         self.accept('f1', self.toggle_wireframe)
         self.accept('escape', sys.exit, [0])
         dl = DirectionalLight('sun')
@@ -104,7 +106,7 @@ class Thirty(ShowBase):
         else:
             r2 = random.uniform(1, 40)
         l = random.randint(1, 80)
-        p = random.randint(3, 20)
+        p = random.randint(12, 40)
         s = random.randint(1, 10)
         self.render.attach_new_node(
             geometry.cone(
@@ -132,6 +134,41 @@ class Thirty(ShowBase):
                 r
             )
         )
+
+    def add_tree(self):
+        stem = geometry.cone(
+            Vec3(0, 0, 0),
+            Vec3(0, 1, 0),
+            (0.5, 0.2),
+            polygon=12,
+            height=10,
+            segments=10,
+            color=Vec4(0.59, 0.27, 0, 1),
+            normal_as_color=False
+        )
+        greens = [stem]
+        for i in range(8):
+            r = 2.0 - i * 0.2, 1.4 - i * 0.2
+            z =  -2 + i
+            greens.append(geometry.cone(
+                Vec3(0, 0, z),
+                Vec3(0, 1, 0),
+                r,
+                polygon=12,
+                height=1,
+                segments=1,
+                color=Vec4(0.08, 0.86, 0, 1),
+                normal_as_color=False
+            ))
+        np = self.render.attach_new_node('tree')
+        for n in greens:
+            np.attach_new_node(n)
+        x = random.uniform(-100, 100)
+        y = random.uniform(-100, 100)
+        z = random.uniform(-2, 3)
+        s = random.uniform(0.5, 2.5)
+        np.set_pos(x, y, z)
+        np.set_scale(s)
 
 
 if __name__ == '__main__':
