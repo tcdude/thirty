@@ -28,6 +28,7 @@ SOFTWARE.
 
 from panda3d.core import Vec3
 
+
 def tri_face_norm(p1, p2, p3, normalized=True):
     u = p2 - p1
     v = p3 - p1
@@ -39,14 +40,15 @@ def tri_face_norm(p1, p2, p3, normalized=True):
     return n.normalized() if normalized else n
 
 
-def connect_lines(upper, lower, wrap_around=True):
+def _connect_lines(upper, lower, wrap_around, ccw):
     """
-    Return triangle indices to connect two lines of vertices.
+    Internal execution of connect_lines(...).
 
-    Arguments:
+    Args:
         upper: Number of vertices in the upper "line"
         lower: Number of vertices in the lower "line"
         wrap_around: (Optional) whether to connect the ends
+        ccw: whether lines are in counter clock wise order
     """
     if not (1 < upper == lower or [upper, lower].count(1) == 1):
         raise ValueError('Wrong input. upper and lower either need to be '
@@ -55,18 +57,49 @@ def connect_lines(upper, lower, wrap_around=True):
     if 1 in (upper, lower):
         if upper == 1:
             if wrap_around:
-                return [((0, ), (i, (i + 1) % lower)) for i in range(lower)]
+                if ccw:
+                    return [((0, ), (i, (i + 1) % lower)) for i in range(lower)]
+                return [((0,), ((i + 1) % lower, i)) for i in range(lower)]
             else:
-                return [((0, ), (i, i + 1)) for i in range(lower - 1)]
+                if ccw:
+                    return [((0, ), (i, i + 1)) for i in range(lower - 1)]
+                return [((0, ), (i + 1, i)) for i in range(lower - 1)]
         else:
             if wrap_around:
-                return [(((i + 1) % upper, i), (0, )) for i in range(upper)]
+                if ccw:
+                    return [(((i + 1) % upper, i), (0, )) for i in range(upper)]
+                return [((i, (i + 1) % upper), (0, )) for i in range(upper)]
             else:
-                return [((i + 1, i), (0, )) for i in range(upper - 1)]
+                if ccw:
+                    return [((i + 1, i), (0, )) for i in range(upper - 1)]
+                return [((i, i + 1), (0, )) for i in range(upper - 1)]
 
     indices = []
     for i in range(upper if wrap_around else upper - 1):
         next_i = (i + 1) % upper
-        indices.append(((i, ), (i, next_i)))
-        indices.append(((next_i, i), (next_i, )))
+        if ccw:
+            indices.append(((i, ), (i, next_i)))
+            indices.append(((next_i, i), (next_i, )))
+        else:
+            indices.append(((i,), (next_i, i)))
+            indices.append(((i, next_i), (next_i,)))
     return indices
+
+
+_connect_lines_cache = {}
+
+
+def connect_lines(upper, lower, wrap_around=True, ccw=True):
+    """
+    Return triangle indices to connect two lines of vertices.
+
+    Args:
+        upper: Number of vertices in the upper "line"
+        lower: Number of vertices in the lower "line"
+        wrap_around: (Optional) whether to connect the ends
+        ccw: whether lines are in counter clock wise order
+    """
+    k = (upper, lower, wrap_around, ccw)
+    if k not in _connect_lines_cache:
+        _connect_lines_cache[k] = _connect_lines(*k)
+    return _connect_lines_cache[k]

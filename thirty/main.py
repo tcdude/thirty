@@ -43,10 +43,12 @@ class Thirty(ShowBase):
     def __init__(self):
         super().__init__()
         self.set_background_color(Vec4(0, 0, 0, 1))
+        self.accept('a', self.add_capsule)
         self.accept('b', self.add_cube)
         self.accept('c', self.add_cone)
         self.accept('p', self.add_prism)
         self.accept('d', self.add_dome)
+        self.accept('s', self.add_sphere)
         self.accept('t', self.add_tree)
         self.accept('f1', self.toggle_wireframe)
         self.accept('escape', sys.exit, [0])
@@ -95,7 +97,6 @@ class Thirty(ShowBase):
             )
         )
 
-
     def add_cone(self):
         x = random.uniform(-100, 100)
         y = random.uniform(-100, 100)
@@ -119,6 +120,24 @@ class Thirty(ShowBase):
             )
         )
 
+    def add_capsule(self):
+        x = random.uniform(-100, 100)
+        y = random.uniform(-100, 100)
+        z = random.uniform(-100, 100)
+        r = random.uniform(4, 40)
+        l = random.randint(int(3 * r), 140)
+        p = random.randint(12, 40)
+        c = random.uniform(0.01, 0.99)
+        self.render.attach_new_node(
+            geometry.capsule(
+                Vec3(x, y, z),
+                Vec3(x, y, z).normalized(),
+                p,
+                r,
+                l,
+                c
+            )
+        )
 
     def add_dome(self):
         x = random.uniform(-100, 100)
@@ -135,10 +154,41 @@ class Thirty(ShowBase):
             )
         )
 
+    def add_sphere(self):
+        x = random.uniform(-100, 100)
+        y = random.uniform(-100, 100)
+        z = random.uniform(-100, 100)
+        r = random.uniform(4, 40)
+        p = random.randint(10, 30)
+        if random.random() < 0.2:
+            h = 360
+        else:
+            h = random.uniform(10, 350)
+        if random.random() < 0.2:
+            p_from = -90
+        else:
+            p_from = random.uniform(-80, 70)
+        if random.random() < 0.2:
+            p_to = 90
+        else:
+            p_to = random.uniform(p_from + 10, 90)
+        self.render.attach_new_node(
+            geometry.sphere(
+                Vec3(x, y, z),
+                Vec3(x, y, z).normalized(),
+                p,
+                r,
+                h,
+                p_from,
+                p_to,
+                random.uniform(0, 360)
+            )
+        )
+
     def add_tree(self):
         stem = geometry.cone(
             Vec3(0, 0, 0),
-            Vec3(0, 1, 0),
+            Vec3(0, 0, 1),
             (0.5, 0.2),
             polygon=12,
             height=10,
@@ -149,10 +199,10 @@ class Thirty(ShowBase):
         greens = [stem]
         for i in range(8):
             r = 2.0 - i * 0.2, 1.4 - i * 0.2
-            z =  -2 + i
+            z = -2 + i
             greens.append(geometry.cone(
                 Vec3(0, 0, z),
-                Vec3(0, 1, 0),
+                Vec3(0, 0, 1),
                 r,
                 polygon=12,
                 height=1,

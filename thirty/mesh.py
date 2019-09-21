@@ -54,7 +54,7 @@ class VertexArray(object):
         self._vert_writer = GeomVertexWriter(self._vert_data, 'vertex')
         self._norm_writer = GeomVertexWriter(self._vert_data, 'normal')
         self._color_writer = GeomVertexWriter(self._vert_data, 'color')
-        self._tex_writer = GeomVertexWriter(self._vert_data, 'tex')
+        self._tex_writer = GeomVertexWriter(self._vert_data, 'texcoord')
         self._prim = GeomTriangles(Geom.UH_static)
 
         self._v_id = 0
@@ -98,7 +98,7 @@ class Mesh(object):
         """
         Return vertex id, while avoiding duplicate vertices.
 
-        Arguments:
+        Args:
             point: Vec3
             color: Vec4
             tex_coord: Vec2 texture coordinates
@@ -109,31 +109,44 @@ class Mesh(object):
 
     def add_triangle(self, va, vb, vc):
         """Return triangle id."""
-        self._triangles[self._t_id] = self._Triangle(va, vb, vc)
+        self._triangles[self._t_id] = self._Triangle(
+            self._vertices[va],
+            self._vertices[vb],
+            self._vertices[vc]
+        )
         self._t_id += 1
         return self._t_id - 1
 
-    def export(self, flat_shading=True, flat_color=True, edge_angle=80.0):
+    def export(
+            self,
+            flat_shading=True,
+            flat_color=True,
+            edge_angle=80.0,
+            normal_as_color=False
+    ):
         """
         Return a Panda3D Node of the mesh. By default uses face normals with
         averaged color per face, if `flat_shading` is ``False`` uses smooth,
         per vertex normals.
 
-        Arguments:
+        Args:
             flat_shading: bool
             flat_color: bool
             edge_angle: angle in degrees at which to make sharp edges.
+            normal_as_color: whether to use the vertex normal as color.
         """
         va = VertexArray(self._name)
         if flat_shading:
             va.set_num_rows(self._t_id * 3)
             for t in self._triangles.values():
                 c = None
-                if flat_color:
+                if flat_color and not normal_as_color:
                     c = Vec4(0)
                     for v in t:
                         c += v.color
                     c /= 3
+                elif normal_as_color:
+                    c = Vec4(*tuple(t.normal), 1.0)
                 t_v = [
                     va.add_row(
                         v.point,
@@ -148,55 +161,123 @@ class Mesh(object):
             va.set_num_rows(self._v_id)
             v2v = {}
             for v in self._vertices.values():
-                v2v[v] = va.add_row(v.point, v.normal, v.color, v.tex_coord)
+                if normal_as_color:
+                    c = Vec4(*tuple(v.normal), 1.0)
+                else:
+                    c = v.color
+                v2v[v] = va.add_row(v.point, v.normal, c, v.tex_coord)
             for t in self._triangles.values():
                 triangle = [v2v[v] for v in t]
                 va.add_triangle(*triangle)
         return va.get_node()
 
     def _compute_smooth_normals(self, edge_angle):
+        """
+        Updates the mesh with smooth vertex normals and duplicates shared
+        vertices where the face-face angle exceeds `edge_angle`.
+
+        Args:
+            edge_angle: angle in degrees above which vertices are duplicated.
+        """
         split_cos = cos(radians(edge_angle))
-        for p in self._points:
+        for p in self._points.values():
             tris = {
                 t: self._vertices[v_id]
                 for v_id in p.vertices
                 for t in self._vertices[v_id].triangles
             }
-            groups = []
-            for t in tris:
-                if not groups:
-                    groups.append([t])
-                    continue
-                g_id = -1
-                t_normal = t.normal
-                for i, g in enumerate(groups):
-                    g_id = i
-                    for tt in g:
-                        if t_normal.dot(tt.normal) > split_cos:
-                            g_id = -1
-                            break
-                    if g_id == i:
-                        break
-                if g_id != -1:
-                    groups[g_id].append(t)
-                else:
-                    groups.append([t])
-            normals = []
-            for g in groups:
-                n = Vec3(0)
-                for t in g:
-                    n += t.normal_mag
-                normals.append(n.normalized())
 
-            for g, n in zip(groups, normals):
-                for t in g:
-                    tris[t].normal = n
+            groups = self._compute_normal_groups(tris, split_cos)
+            v2n = self._compute_vertex_duplication(tris, groups)
+
+            for v in v2n:
+                if len(v2n[v]) < 2:
+                    v.normal = list(v2n[v].keys())[0]
+                    continue
+                first = True
+                for n in v2n[v]:
+                    if first:
+                        first = False
+                        v.normal = n
+                        continue
+                    new_id = self.insert_unique_vertex(
+                        v.point,
+                        v.color,
+                        v.tex_coord
+                    )
+                    self._vertices[new_id].normal = n
+                    for t in v2n[v][n]:
+                        t.replace_vertex(v, self._vertices[new_id])
+                        v.remove_from_triangle(t)
+
+    @staticmethod
+    def _compute_vertex_duplication(triangles, groups):
+        """
+        Return a dict, that is mapping unique combinations of vertex, normal and
+        the corresponding triangles.
+
+        Args:
+            triangles:
+            groups:
+        Returns: v2n[vertex][normal] = [triangle, ...]
+        """
+        normals = []
+        for g in groups:
+            n = Vec3(0)
+            for t in g:
+                n += t.normal_mag
+            normals.append(n.normalized())
+        v2n = {}
+        for g, n in zip(groups, normals):
+            for t in g:
+                if triangles[t] in v2n:
+                    if n not in v2n[triangles[t]]:
+                        v2n[triangles[t]][n] = [t]
+                    else:
+                        v2n[triangles[t]][n].append(t)
+                else:
+                    v2n[triangles[t]] = {n: [t]}
+        return v2n
+
+    @staticmethod
+    def _compute_normal_groups(triangles, split_cos):
+        """
+        Return a list of triangle lists where every group leads to a different
+        vertex normal.
+
+        Args:
+            triangles: dict
+            split_cos: cos of the angle when to create sharp edges
+
+        Returns:
+
+        """
+        groups = []
+        for t in triangles:
+            if not groups:
+                groups.append([t])
+                continue
+            g_id = -1
+            t_normal = t.normal
+            for i, g in enumerate(groups):
+                g_id = i
+                for tt in g:
+                    if t_normal.dot(tt.normal) < split_cos:  # inner angle
+                        g_id = -1
+                        break
+                if g_id == i:
+                    break
+            if g_id != -1:
+                groups[g_id].append(t)
+            else:
+                groups.append([t])
+        return groups
 
     def insert_unique_vertex(self, point, color, tex_coord):
         """
         Return vertex id of a new vertex, not considering duplicate vertices.
 
-        Arguments:
+        Args:
             point: Vec3
             color: Vec4
             tex_coord: Vec2
@@ -204,6 +285,11 @@ class Mesh(object):
         self._vertices[self._v_id] = self._Vertex(point, color, tex_coord)
         self._v_id += 1
         return self._v_id - 1
+
+    def __getitem__(self, item):
+        if item in range(self._v_id):
+            return self._vertices[item]
+        raise IndexError
 
     class _Triangle(object):
         def __init__(self, va, vb, vc):
@@ -213,8 +299,32 @@ class Mesh(object):
             va.add_to_triangle(self)
             vb.add_to_triangle(self)
             vc.add_to_triangle(self)
-            self._normal_mag = tools.tri_face_norm(va, vb, vc, False)
+            self._normal_mag = tools.tri_face_norm(
+                va.point,
+                vb.point,
+                vc.point,
+                False
+            )
             self._normal = self._normal_mag.normalized()
+
+        def replace_vertex(self, old, new):
+            """
+            Replaces a vertex in the triangle. Raises a ValueError if the `old`
+            is not a vertex of this triangle.
+
+            Args:
+                old: the old Vertex to be replaced
+                new: the replacement Vertex
+            """
+            if self._va == old:
+                self._va = new
+            elif self._vb == old:
+                self._vb = new
+            elif self._vc == old:
+                self._vc = new
+            else:
+                raise ValueError('old is not a vertex of this triangle.')
+            new.add_to_triangle(self)
 
         @property
         def normal(self):
@@ -276,6 +386,12 @@ class Mesh(object):
 
         def add_to_triangle(self, triangle):
             self._triangles.append(triangle)
+
+        def remove_from_triangle(self, triangle):
+            try:
+                self._triangles.pop(self._triangles.index(triangle))
+            except ValueError:
+                raise ValueError
 
         @property
         def triangles(self):

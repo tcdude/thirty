@@ -31,11 +31,16 @@ from panda3d.core import Vec3
 
 
 class Draw(object):
+    # noinspection PyArgumentList
     def __init__(self):
         self._world = NodePath('world')
         self._origin = self._world.attach_new_node('origin')
-        self._orientation = self._origin.attach_new_node('orientation')
+        self._origin_p = self._origin.attach_new_node('origin_p')
+        self._origin_h = self._origin_p.attach_new_node('origin_h')
+        self._orientation = self._origin_h.attach_new_node('orientation')
         self._draw = self._orientation.attach_new_node('draw')
+        self._origin_p.set_p(-90)
+        self._origin_h.set_h(-90)
 
     def reset(self):
         self._origin.set_pos(0, 0, 0)
@@ -43,13 +48,44 @@ class Draw(object):
         self._orientation.set_pos_hpr(Vec3(0), Vec3(0))
         self._draw.set_pos_hpr(Vec3(0), Vec3(0))
 
-    def setup(self, origin, forward, up=None):
+    def setup(self, origin, direction):
         self.reset()
-        if up is not None:
-            self._origin.heads_up(forward, up)
-        else:
-            self._origin.look_at(forward)
+        self._origin.look_at(direction)
         self._origin.set_pos(origin)
+
+    def set_pos_hp_d(self, x, y, z, h, p, d):
+        """
+        Update rig position, orientation and distance of draw from orientation.
+
+        Arguments:
+            x: x-axis offset as viewed from the base
+            y: y-axis offset as viewed from the base
+            z: direction-axis positive is forward, negative is back
+            h: heading of the rig
+            p: pitch of the rig
+            d: distance/radius of draw
+        """
+        self._orientation.set_pos_hpr(x, -y, z, h, p, 0)
+        self._draw.set_y(d)
+
+    def set_hp_d(self, h, p, d=None):
+        """
+        Update rig orientation and optionally distance of draw from orientation.
+
+        Arguments:
+            h: heading of the rig
+            p: pitch of the rig
+            d: distance/radius of draw
+        """
+        self._orientation.set_hpr(h, p, 0)
+        if d is not None:
+            self._draw.set_y(d)
+
+    def set_f(self, f):
+        self._orientation.set_z(f)
+
+    def set_d(self, d):
+        self._draw.set_y(d)
 
     @property
     def orientation(self):
@@ -62,3 +98,17 @@ class Draw(object):
     @property
     def pos(self):
         return self._draw.get_pos(self._world)
+
+    @property
+    def center_pos(self):
+        pos = self._orientation.get_pos()
+        hpr = self._orientation.get_hpr()
+        z = self._draw.get_pos(self._origin).y
+        self._orientation.set_pos_hpr(0, 0, z, 0, 0, 0)
+        c_pos = self._orientation.get_pos(self._world)
+        self._orientation.set_pos_hpr(pos, hpr)
+        return c_pos
+
+    @property
+    def origin_pos(self):
+        return self._origin.get_pos()

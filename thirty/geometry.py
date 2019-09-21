@@ -1,7 +1,6 @@
 """
 Helper functions to easily create various shapes.
 """
-from thirty.tools import connect_lines
 
 __copyright__ = """
 MIT License
@@ -27,13 +26,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from panda3d.core import GeomVertexFormat
-from panda3d.core import GeomVertexData
-from panda3d.core import GeomVertexWriter
-from panda3d.core import Geom
-from panda3d.core import GeomTriangles
-from panda3d.core import GeomNode
-from panda3d.core import NodePath
 from panda3d.core import Vec3
 from panda3d.core import Vec4
 
@@ -41,23 +33,19 @@ import numpy as np
 
 from . import draw
 from . import tools
-
+from . import mesh
 
 NAC = True
+D = draw.Draw()
 
 
-def vert_array(num_rows, name):
-    vert_data = GeomVertexData(
-        name,
-        GeomVertexFormat.get_v3n3c4(),
-        Geom.UH_static
-    )
-
-    vert_data.set_num_rows(num_rows)
-    vert_writer = GeomVertexWriter(vert_data, 'vertex')
-    norm_writer = GeomVertexWriter(vert_data, 'normal')
-    color_writer = GeomVertexWriter(vert_data, 'color')
-    return vert_data, vert_writer, norm_writer, color_writer
+def _populate_triangles(m, verts, wrap_around=True):
+    for i in range(len(verts) - 1):
+        upper = verts[i + 1]
+        lower = verts[i]
+        for u, l in tools.connect_lines(len(upper), len(lower), wrap_around):
+            triangle = [upper[v] for v in u] + [lower[v] for v in l]
+            m.add_triangle(*triangle)
 
 
 def prism(
@@ -70,11 +58,11 @@ def prism(
         segments=1,
         color=Vec4(1),
         normal_as_color=NAC
-    ):
+):
     """
     Return GeomNode of prism.
 
-    Arguments:
+    Args:
         origin: Mesh origin
         polygon: Number of vertices in the base polygon (3+)
         radius: radius of the base polygon
@@ -85,108 +73,43 @@ def prism(
         color: Vec4
         normal_as_color: whether to use the normal as color
     """
-    world_np = NodePath('world')
-    direction_np = world_np.attach_new_node('direction')
-    orientation_np = direction_np.attach_new_node('orientation')
-    draw_np = orientation_np.attach_new_node('draw')
-    draw_np.set_pos(radius, 0, 0)
-    direction_np.look_at(*tuple(direction))
+    D.setup(origin, direction)
     steps = np.linspace(
         -length * center_offset,
         length * (1.0 - center_offset),
         segments + 1
     )
-    verts = []
+
+    m = mesh.Mesh('prism')
+    D.set_f(steps[0])
+    D.set_d(0)
+    verts = [[m.add_vertex(D.pos, color)]]
+    D.set_d(radius)
     for z in steps:
-        orientation_np.set_z(z)
+        D.set_f(z)
         line = []
         for h in np.linspace(0, 360, polygon, endpoint=False):
-            orientation_np.set_h(h)
-            line.append(draw_np.get_pos(world_np) + origin)
+            D.set_hp_d(h, 0)
+            line.append(m.add_vertex(D.pos, color))
         verts.append(line)
 
-    orientation_np.set_z(steps[0])
-    base_point = orientation_np.get_pos(world_np) + origin
-    orientation_np.set_z(steps[-1])
-    top_point = orientation_np.get_pos(world_np) + origin
-    base_triangles = connect_lines(polygon, 1)
-    segment_triangles = connect_lines(polygon, polygon)
-    top_triangles = connect_lines(1, polygon)
+    D.set_d(0)
+    verts.append([m.add_vertex(D.pos, color)])
 
-    vert_data, vert_writer, norm_writer, color_writer = vert_array(
-        len(base_triangles) * 6 + len(segment_triangles) * segments * 3,
-        'prism'
-    )
-
-    base_normal = -direction
-    normal_sides = []
-    for i in range(polygon):
-        u, l = segment_triangles[i * 2]
-        pts = [verts[1][v] for v in u] + [verts[0][v] for v in l]
-        normal_sides.append(tools.tri_face_norm(*pts))
-
-    prim = GeomTriangles(Geom.UH_static)
-
-    # Fill vert_data and create primitives on the fly
-    current_id = 0
-    for u, l in base_triangles:
-        triangle = [verts[0][i] for i in u] + [base_point, ]
-        for v in triangle:
-            vert_writer.add_data3(v)
-            norm_writer.add_data3(base_normal)
-            if normal_as_color:
-                color_writer.add_data4(*tuple(base_normal), 1)
-            else:
-                color_writer.add_data4(color)
-        prim.add_vertices(current_id, current_id + 1, current_id + 2)
-        current_id += 3
-
-    for u, l in top_triangles:
-        triangle = [top_point, ] + [verts[-1][i] for i in l]
-        for v in triangle:
-            vert_writer.add_data3(v)
-            norm_writer.add_data3(direction)
-            if normal_as_color:
-                color_writer.add_data4(*tuple(direction), 1)
-            else:
-                color_writer.add_data4(color)
-        prim.add_vertices(current_id, current_id + 1, current_id + 2)
-        current_id += 3
-
-    for line_id in range(len(verts) - 1):
-        upper = verts[line_id + 1]
-        lower = verts[line_id]
-        for i in range(polygon):
-            normal = normal_sides[i]
-            idx = i * 2
-            for u, l in segment_triangles[idx:idx + 2]:
-                triangle = [upper[v] for v in u]
-                triangle += [lower[v] for v in l]
-                for v in triangle:
-                    vert_writer.add_data3(v)
-                    norm_writer.add_data3(normal)
-                    if normal_as_color:
-                        color_writer.add_data4(*tuple(normal), 1)
-                    else:
-                        color_writer.add_data4(color)
-                prim.add_vertices(current_id, current_id + 1, current_id + 2)
-                current_id += 3
-
-    geom = Geom(vert_data)
-    geom.add_primitive(prim)
-    node = GeomNode('prism')
-    node.add_geom(geom)
-    return node
+    _populate_triangles(m, verts)
+    return m.export(normal_as_color=normal_as_color)
 
 
-def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=NAC):
+def cuboid(origin, bounds, direction, color=Vec4(1), normal_as_color=NAC):
     """
     Return GeomNode of the cuboid,
 
-    Arguments:
+    Args:
         origin: center of the cuboid
         bounds: 3-Tuple of length, width and height
-        normal: normal vector of the up face
+        direction: normal vector of the up face
+        color: Vec4
+        normal_as_color: whether to use vertex normal as color
     """
     dfl = Vec3(-bounds[0], -bounds[1], -bounds[2])
     dfr = Vec3(bounds[0], -bounds[1], -bounds[2])
@@ -206,43 +129,16 @@ def cuboid(origin, bounds, normal, color=Vec4(1), normal_as_color=NAC):
         (dbl, ubl, ubr, dbr),   # Back
     ]
 
-    world_np = NodePath('world')
-    direction_np = world_np.attach_new_node('direction')
-    draw_np = direction_np.attach_new_node('draw')
-    direction_np.look_at(normal)
-    direction_np.set_pos(origin)
-
-    vert_data, vert_writer, norm_writer, color_writer = vert_array(
-        24,
-        'cuboid'
-    )
-    prim = GeomTriangles(Geom.UH_static)
-
-    current_id = 0
+    D.setup(origin, direction)
+    m = mesh.Mesh('cuboid')
     for f in faces:
         pts = []
         for p in f:
-            draw_np.set_pos(p)
-            vert = draw_np.get_pos(world_np)
-            vert_writer.add_data3(vert)
-            pts.append(vert)
-        normal = tools.tri_face_norm(*pts[:3])
-
-        for i in range(4):
-            norm_writer.add_data3(normal)
-            if normal_as_color:
-                color_writer.add_data4(*tuple(normal), 1)
-            else:
-                color_writer.add_data4(color)
-        prim.add_vertices(current_id, current_id + 1, current_id + 2)
-        prim.add_vertices(current_id + 2, current_id + 3, current_id)
-        current_id += 4
-
-    geom = Geom(vert_data)
-    geom.add_primitive(prim)
-    node = GeomNode('cuboid')
-    node.add_geom(geom)
-    return node
+            D.set_pos_hp_d(p.x, p.y, p.z, 0, 0, 0)
+            pts.append(m.add_vertex(D.pos, color))
+        m.add_triangle(*reversed(pts[:3]))
+        m.add_triangle(pts[0], *reversed(pts[2:]))
+    return m.export(normal_as_color=normal_as_color)
 
 
 def cone(
@@ -260,7 +156,7 @@ def cone(
     """
     Return a Node of a cone.
 
-    Arguments:
+    Args:
         origin: Vec3
         direction: Vec3
         radii: 2-Tuple with base and top radius
@@ -268,50 +164,17 @@ def cone(
         height: float
         segments: number of segments from base to top
         center_offset: float 0..1 z-origin by height
-        top_offset: 2-Tuple x, y offset for top TODO: Implement this
+        top_offset: 2-Tuple x, y offset for top
         color: Vec4
         normal_as_color: whether to use the vertex normal as color
     """
-    vert_data, vert_writer, norm_writer, color_writer = vert_array(
-        2 + polygon * (segments + 1 if 0 in radii else 2),
-        'cone'
-    )
-    current_id = [0]
+    D.setup(origin, direction)
+    m = mesh.Mesh('cone')
 
-    def add_row(v, n):
-        vert_writer.add_data3(v)
-        norm_writer.add_data3(n)
-        if normal_as_color:
-            color_writer.add_data4(*tuple(n), 1)
-        else:
-            color_writer.add_data4(color)
-        current_id[0] += 1
-        return current_id[0] - 1
-
-    world_np = NodePath('world')
-    direction_np = world_np.attach_new_node('direction')
-    orientation_np = direction_np.attach_new_node('orientation')
-    draw_np = orientation_np.attach_new_node('draw')
-    direction_np.look_at(direction)
-    direction_np.set_pos(origin)
-
-    draw_np.set_x(1)
     h_steps = np.linspace(0, 360, polygon, endpoint=False)
-    normals = []
-    for h in h_steps:
-        orientation_np.set_h(h)
-        n = draw_np.get_pos(world_np) - orientation_np.get_pos(world_np)
-        n.normalize()
-        normals.append(n)
-
-    draw_np.set_pos(0, 0, -1)
-    base_normal = draw_np.get_pos(world_np) - orientation_np.get_pos(world_np)
-    base_normal.normalize()
-    top_normal = -base_normal
-
     r_steps = np.linspace(*radii, segments + 1)
-
-    draw_np.set_pos(0, 0, 0)
+    x_steps = np.linspace(0, top_offset[0], segments + 1)
+    y_steps = np.linspace(0, top_offset[1], segments + 1)
     z_steps = np.linspace(
         -height * center_offset,
         height * (1 - center_offset),
@@ -320,62 +183,29 @@ def cone(
 
     last = len(r_steps) - 1
     verts = []
-    for i, (r, z) in enumerate(zip(r_steps, z_steps)):
-        orientation_np.set_z(z)
-        draw_np.set_x(r)
+    for i, (r, x, y, z) in enumerate(zip(r_steps, x_steps, y_steps, z_steps)):
+        D.set_pos_hp_d(x, y, z, 0, 0, r)
         if r == 0:
-            v_id = add_row(
-                draw_np.get_pos(world_np),
-                top_normal if i else base_normal
-            )
-
-            verts.append([v_id])
+            verts.append([m.add_vertex(D.pos, color)])
             continue
 
         if i == 0:
-            line = []
-            draw_np.set_x(0)
-            v_id = add_row(draw_np.get_pos(world_np), base_normal)
-            verts.append([v_id])
-            draw_np.set_x(r)
-            for h, n in zip(h_steps, normals):
-                orientation_np.set_h(h)
-                v_id = add_row(draw_np.get_pos(world_np), base_normal)
-                line.append(v_id)
-            verts.append(line)
+            D.set_d(0)
+            verts.append([m.add_vertex(D.pos, color)])
+            D.set_d(r)
 
         line = []
-        for h, n in zip(h_steps, normals):
-            orientation_np.set_h(h)
-            v_id = add_row(draw_np.get_pos(world_np), n)
-            line.append(v_id)
+        for h in h_steps:
+            D.set_hp_d(h, 0)
+            line.append(m.add_vertex(D.pos, color))
         verts.append(line)
 
         if i == last:
-            line = []
-            for h, n in zip(h_steps, normals):
-                orientation_np.set_h(h)
-                v_id = add_row(draw_np.get_pos(world_np), top_normal)
-                line.append(v_id)
-            verts.append(line)
-            draw_np.set_x(0)
-            v_id = add_row(draw_np.get_pos(world_np), top_normal)
-            verts.append([v_id])
+            D.set_d(0)
+            verts.append([m.add_vertex(D.pos, color)])
 
-    prim = GeomTriangles(Geom.UH_static)
-    for i in range(len(verts) - 1):
-        upper = verts[i + 1]
-        lower = verts[i]
-        tri_indices = connect_lines(len(upper), len(lower))
-        for u, l in tri_indices:
-            triangle = [upper[v] for v in u] + [lower[v] for v in l]
-            prim.add_vertices(*triangle)
-
-    geom = Geom(vert_data)
-    geom.add_primitive(prim)
-    node = GeomNode('cone')
-    node.add_geom(geom)
-    return node
+    _populate_triangles(m, verts)
+    return m.export(False, edge_angle=80, normal_as_color=normal_as_color)
 
 
 def cylinder(
@@ -392,7 +222,7 @@ def cylinder(
     """
     Return a Node of a cylinder.
 
-    Arguments:
+    Args:
         origin: Vec3
         direction: Vec3
         polygon: number of vertices
@@ -416,120 +246,215 @@ def cylinder(
     )
 
 
+def sphere(
+        origin,
+        direction,
+        polygon,
+        radius,
+        h_deg=360,
+        p_from_deg=-90,
+        p_to_deg=90,
+        h_offset=0,
+        color=Vec4(1),
+        normal_as_color=NAC
+):
+    """
+    Return a Node of a parametric sphere.
+
+    Args:
+        origin:
+        direction:
+        polygon:
+        radius:
+        h_deg:
+        p_from_deg:
+        p_to_deg:
+        h_offset:
+        color:
+        normal_as_color:
+
+    Returns: GeomNode
+    """
+    if not (-90 <= p_from_deg < 90):
+        raise ValueError('illegal p_from_deg')
+    if not (-90 < p_to_deg <= 90) or p_to_deg <= p_from_deg:
+        raise ValueError('illegal p_to_deg or not p_to_deg > p_from_deg')
+    if not (0 < h_deg <= 360):
+        raise ValueError('illegal h_deg')
+    if polygon < 3:
+        raise ValueError('polygon must be >= 3')
+    if not radius or radius < 0:
+        raise ValueError('radius must be a positive, non-zero float/int')
+
+    segments = max(2, polygon // 2 + 1)  # TODO: account for partial sphere
+    wrap_around = h_deg == 360
+    D.setup(origin, direction)
+    m = mesh.Mesh('sphere')
+    p_steps = np.linspace(p_from_deg, p_to_deg, segments + 1)
+    h_steps = np.linspace(0, h_deg, polygon, endpoint=False)
+    last = len(p_steps) - 1
+    verts = []
+    h_slice = []
+    slice_top = None
+    slice_bottom = None
+    for i, p in enumerate(p_steps):
+        D.set_hp_d(h_offset, p, radius)
+        if i == 0:
+            if p == -90:
+                verts.append([m.add_vertex(D.pos, color)])
+            else:
+                verts.append([m.add_vertex(D.center_pos, color)])
+            if not wrap_around:
+                h_slice.append(verts[-1][-1])
+                slice_bottom = m[verts[-1][-1]].point
+            if p == -90:
+                continue
+
+        if i < last or p < 90:
+            line = []
+            for j, h in enumerate(h_steps):
+                D.set_hp_d(h + h_offset, p)
+                line.append(m.add_vertex(D.pos, color))
+                if not wrap_around:
+                    if j == 0:
+                        h_slice.insert(0, line[-1])
+                    elif j == polygon - 1:
+                        h_slice.append(line[-1])
+            verts.append(line)
+
+        if i == last:
+            if p == 90:
+                verts.append([m.add_vertex(D.pos, color)])
+            else:
+                verts.append([m.add_vertex(D.center_pos, color)])
+            if not wrap_around:
+                h_slice.append(verts[-1][-1])
+                slice_top = m[verts[-1][-1]].point
+
+    _populate_triangles(m, verts, wrap_around)
+    if not wrap_around:
+        center = (slice_top - slice_bottom) * 0.5 + slice_bottom
+        tmp_verts = [
+            [m.add_vertex(center, color)],
+            h_slice
+        ]
+        _populate_triangles(m, tmp_verts)
+    return m.export(
+        flat_shading=False,
+        edge_angle=80,
+        normal_as_color=normal_as_color
+    )
+
+
 def dome(
         origin,
         direction,
         polygon,
         radius,
-        segments=None,
         color=Vec4(1),
         normal_as_color=NAC
-    ):
+):
     """
     Return a Node of a dome/half-sphere.
 
-    Arguments:
+    Args:
         origin: Vec3
         direction: Vec3
         polygon: number of vertices
         radius: float
-        segments: int
         color: Vec4
         normal_as_color: whether to use the vertex normal as color
     """
-    segments = segments or max(2, polygon // 4 + 1)
-    vert_data, vert_writer, norm_writer, color_writer = vert_array(
-        2 + polygon * (segments + 1),
-        'dome'
-    )
-    current_id = [0]
-
-    def add_row(v, n):
-        vert_writer.add_data3(v)
-        norm_writer.add_data3(n)
-        if normal_as_color:
-            color_writer.add_data4(*tuple(n.normalized()), 1)
-        else:
-            color_writer.add_data4(color)
-        current_id[0] += 1
-        return current_id[0] - 1
-
-    world_np = NodePath('world')
-    direction_np = world_np.attach_new_node('direction')
-    orientation_np = direction_np.attach_new_node('orientation')
-    draw_np = orientation_np.attach_new_node('draw')
-    direction_np.look_at(direction)
-    direction_np.set_pos(origin)
-    draw_np.set_y(radius)
-    orientation_np.set_z(radius)
-    verts = [[add_row(orientation_np.get_pos(world_np), direction)]]
-    orientation_np.set_z(0)
-    base_point = add_row(orientation_np.get_pos(world_np), -direction)
-    base_normal = -direction
-
-    h_steps = np.linspace(0, 360, polygon, endpoint=False)
-    p_steps = np.linspace(0, 90, segments + 1, endpoint=False)
-    p_steps = p_steps[::-1]
-    last_line = []
-    for i, p in enumerate(p_steps):
-        line = []
-        orientation_np.set_p(p)
-        for h in h_steps:
-            orientation_np.set_h(h)
-            v = draw_np.get_pos(world_np)
-            n = v - base_point
-            n.normalize()
-            line.append(add_row(v, n))
-            if i == segments:
-                last_line.append(add_row(v, (base_normal * 3 + n).normalized()))
-        verts.append(line)
-
-    prim = GeomTriangles(Geom.UH_static)
-    for i in range(len(verts) - 1):
-        upper = verts[i]
-        lower = verts[i + 1]
-        for u, l in connect_lines(len(upper), len(lower)):
-            triangle = [upper[v] for v in u] + [lower[v] for v in l]
-            prim.add_vertices(*triangle)
-
-    for u, l in connect_lines(len(last_line), 1):
-        triangle = [last_line[v] for v in u] + [base_point]
-        prim.add_vertices(*triangle)
-
-    geom = Geom(vert_data)
-    geom.add_primitive(prim)
-    node = GeomNode('dome')
-    node.add_geom(geom)
-    return node
-
-
-def mushroom_cap(
+    return sphere(
         origin,
         direction,
         polygon,
-        inner_radii,
-        outer_radii,
-        inner_height,
-        outer_height,
-        inner_color=Vec4(1),
-        outer_color=Vec4(1),
-        normal_as_color=NAC
-    ):
-    """
-    Return a Node of a mushroom cap shape.
+        radius,
+        p_from_deg=0,
+        color=color,
+        normal_as_color=normal_as_color
+    )
 
-    Arguments:
+
+def capsule(
+        origin,
+        direction,
+        polygon,
+        radius,
+        length,
+        center_offset=0.5,
+        color=Vec4(1),
+        normal_as_color=NAC
+):
+    """
+    Return a Node of a capsule.
+
+    Args:
         origin: Vec3
         direction: Vec3
-        polygon: Number of vertices for the polygons used
-        inner_radii: inner radii from inner top most to base of the cap
-        outer_radii: outer radii from outer base to the top most
-        inner_height: distance between base and inner top
-        outer_height: distance between base and outer top
-        inner_color: Vec4 color inside the cap
-        outer_color: Vec4 color outside the cap
-        normal_as_color: whether to use the normal vector as color
+        polygon: number of vertices per ring
+        radius: float
+        length: float units of length between the end points
+        center_offset: float 0..1 origin offset
+        color: Vec4
+        normal_as_color: whether to use the vertex normal as color
     """
-    d = draw.Draw()
-    d.setup(origin, direction)
+    if polygon < 3:
+        raise ValueError('polygon must be >= 3')
+    if radius <= 0:
+        raise ValueError('radius must be a positive, non-zero float')
+    if length < 2 * radius:
+        raise ValueError('length must be larger than 2 * radius')
+    if not (0 <= center_offset <= 1):
+        raise ValueError('center_offset must be in range 0..1')
 
+    D.setup(origin, direction)
+    D.set_d(radius)
+    m = mesh.Mesh('capsule')
+    c_segments = max(2, polygon // 4)
+    b_segments = int((length - 2 * radius) / (radius / c_segments)) + 1
+    f_steps = np.linspace(
+        -center_offset * length + radius,
+        (1.0 - center_offset) * length - radius,
+        b_segments + 1
+    )
+    h_steps = np.linspace(0, 360, polygon, endpoint=False)
+    verts = []
+    last = len(f_steps) - 1
+    for i, f in enumerate(f_steps):
+        D.set_f(f)
+        if i == 0:
+            for p in np.linspace(-90, 0, c_segments, endpoint=False):
+                if p == -90:
+                    D.set_hp_d(0, p)
+                    verts.append([m.add_vertex(D.pos, color)])
+                    continue
+                line = []
+                for h in h_steps:
+                    D.set_hp_d(h, p)
+                    line.append(m.add_vertex(D.pos, color))
+                verts.append(line)
+
+        line = []
+        for h in h_steps:
+            D.set_hp_d(h, 0)
+            line.append(m.add_vertex(D.pos, color))
+        verts.append(line)
+
+        if i == last:
+            for p in np.linspace(90, 0, c_segments, endpoint=False)[::-1]:
+                if p == 90:
+                    D.set_hp_d(0, p)
+                    verts.append([m.add_vertex(D.pos, color)])
+                    continue
+                line = []
+                for h in h_steps:
+                    D.set_hp_d(h, p)
+                    line.append(m.add_vertex(D.pos, color))
+                verts.append(line)
+    _populate_triangles(m, verts)
+    return m.export(
+        flat_shading=False,
+        edge_angle=80.0,
+        normal_as_color=normal_as_color
+    )
